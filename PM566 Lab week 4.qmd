@@ -1,0 +1,167 @@
+---
+title: "PM566 Lab Week 4"
+author: "Jordan Walton"
+format:
+  html:
+    embed-resources: true
+---
+
+# Week 4 Lab
+
+## **1. Read in the data**
+
+```{r}
+if (!file.exists("met_all.gz"))
+  download.file(
+    url = "https://raw.githubusercontent.com/USCbiostats/data-science-data/master/02_met/met_all.gz",
+    destfile = "met_all.gz",
+    method   = "libcurl",
+    timeout  = 60
+    )
+met <- data.table::fread ("met_all.gz")
+```
+
+## **2. Prepare the data**
+
+```{r}
+met <- met[temp > -17][elev == 9999.0, elev := NA]
+met[, week := week(as.Date(paste(year, month, day, sep = "-")))]
+met <- met[week == min(week, na.rm = TRUE)]
+
+met_avg <- met[,.(temp=mean(temp,na.rm=TRUE), rh=mean(rh,na.rm=TRUE), wind.sp=mean(wind.sp,na.rm=TRUE), 
+                vis.dist=mean(vis.dist,na.rm=TRUE), dew.point = mean(dew.point, na.rm=TRUE), lat=mean(lat), lon=mean(lon), 
+                elev=mean(elev,na.rm=TRUE)), by="USAFID"]
+
+met_avg$elev_cat <- ifelse(met_avg$elev> 252, "high", "low")
+
+met_avg$region <- ifelse(met_avg$lon > -98 & met_avg$lat >39.71, "north east",
+                         ifelse(met_avg$lon > -98 & met_avg$lat < 39.71, "south east",
+                                ifelse(met_avg$lon < -98 & met_avg$lat >39.71, "north west", "south west")))
+
+table(met_avg$region)
+
+```
+
+## **3. Use `geom_violin` to examine the wind speed and dew point by region**
+
+```{r}
+met_avg %>%
+  filter(!(region %in% NA)) %>%
+ggplot()+
+  geom_violin(mapping = aes(y=wind.sp, x=1)) +
+  facet_wrap(~region, nrow=2)
+
+met_avg %>%
+  filter(!(region %in% NA)) %>%
+ggplot()+
+  geom_boxplot(mapping = aes(y=rh, fill=region)) +
+  facet_wrap(~region, nrow=2)
+
+```
+
+**Description: North East** has a **right-skewed** distribution, meaning most wind speeds are low (around 3), but there are occasional high-speed outliers.**North West** shows a **flatter, more uniform** distribution to where wind speeds are more evenly spread out, with no strong central peak. **South East and South West** both have **symmetrical distributions**, suggesting consistent wind speeds centered around 3, with fewer extremes.
+
+```{r}
+met_avg %>%
+  filter(!(region %in% NA)) %>%
+ggplot()+
+  geom_violin(mapping = aes(y=dew.point, x=1)) +
+  facet_wrap(~region, nrow=2)
+
+met_avg %>%
+  filter(!(region %in% NA)) %>%
+ggplot()+
+  geom_boxplot(mapping = aes(y=rh, fill=region)) +
+  facet_wrap(~region, nrow=2)
+
+```
+
+**Description**:
+
+**South East** stands out with a **tight, symmetric distribution** centered around a higher dew point, which suggests consistent humid conditions. **North West** has a **flat, dispersed shape**, indicating more variability and less predictability in dew point. **North East** shows a **right-skewed** pattern, meaning most values are moderate but there are occasional high-humidity outliers. Finally, **South West** appears to have a **left-skewed or bimodal** distribution, with more frequent low dew point values and a broader spread—possibly indicating drier conditions with occasional spikes.
+
+## 4. **Use `geom_jitter` with `stat_smooth` to examine the association between dew point and wind speed by region**
+
+```{r}
+met_avg %>%
+filter(!(region %in% NA)) %>%
+  ggplot(mapping = aes(x=dew.point, y=wind.sp, color=region))+
+  geom_jitter() + 
+  stat_smooth(method=lm)
+  
+```
+
+**Description**: **South East** shows the **strongest positive relationship**, as dew point increases, wind speed tends to rise. This suggests more dynamic weather systems in humid conditions.**North West** has a **weaker or negligible correlation**, indicating that dew point and wind speed may vary independently.**Lastly, North East and South West** show **moderate positive trends**, but with more variability and clustering at lower values.
+
+## 5. **Use `geom_bar` to create barplots of the weather stations by elevation category colored by region**
+
+```{r}
+met_avg %>%
+filter(!(region %in% NA)) %>%
+  ggplot()+
+  geom_bar(mapping=aes(x=elev_cat,fill=region), position = "dodge")+
+  scale_fill_brewer(palette = "PuOr")+
+  labs(title="Number of weather stations by elevation category and region", x="Elevation Category", y= "Count")+
+  theme_bw()
+
+```
+
+**Description**: **South East** is heavily represented in **low elevation**, suggesting a concentration of weather stations in flatter or coastal areas. **North East** has strong coverage in **high elevation**, possibly due to mountainous terrain or strategic placement. **North West** consistently has the **fewest stations**, which might reflect geographic challenges, lower population density, or under-resourcing. **South West** maintains a **balanced presence** across both elevation categories.
+
+## 6. **Use `stat_summary` to examine mean dew point and wind speed by region with standard deviation error bars**
+
+```{r}
+met_avg %>%
+filter(!(region %in% NA)) %>%
+  ggplot(mapping=aes(x=region, y=dew.point)) +
+  stat_summary(fun.data="mean_sdl", geom="errorbar") +
+  stat_summary(fun.data="mean_sdl")
+```
+
+**Description**: **South East** has the highest average dew point, suggesting more humid conditions, while **North West and South West** are cooler and drier on average.
+
+**north east:** 17.5
+
+**northwest:** 13
+
+**southeast:** 22
+
+**southwest:** 14
+
+```{r}
+met_avg %>%
+filter(!(region %in% NA)) %>%
+  ggplot(mapping=aes(x=region, y=wind.sp)) +
+  stat_summary(fun.data="mean_sdl", geom="errorbar") +
+  stat_summary(fun.data="mean_sdl")
+```
+
+**Description**: **North West and South West** have the **highest average wind speeds**, suggesting more dynamic or exposed terrain. **North East and South East** show **lower wind speeds**, possibly indicating sheltered geography or more stable atmospheric conditions.
+
+## 7. **Make a map showing the spatial trend in relative humidity in the US**
+
+```{r}
+met_avg2<-met_avg[!is.na(rh)]
+
+# Top five
+top5 <- met_avg2[rank(-rh) <= 10]
+
+rh_pal = colorNumeric(c('blue','purple','red'), domain=met_avg2$rh)
+leaflet(met_avg2) %>%
+  addProviderTiles('OpenStreetMap') %>%
+  addCircles(lat=~lat, lng=~lon, color=~rh_pal(rh), label=~paste0(round(rh,2), ' rh'), opacity=1,fillOpacity=1, radius=500) %>%
+  addMarkers(lat=~lat, lng=~lon, label=~paste0(round(rh,2), ' rh'), data = top5) %>%
+  addLegend('bottomleft',pal=rh_pal, values=met_avg2$rh, title="Relative Humidity", opacity=1)
+
+```
+
+**Description**: The **East Coast and Southeast** are consistently humid, which can affect dew point, precipitation, and comfort levels. The **West,** however, is much drier, aligning with desert and Mediterranean climate zones. These RH patterns are crucial for modeling weather, understanding regional climate behavior, and even planning outdoor activities or athletic performance.
+
+## 8. **Use a ggplot extension**
+
+```{r}
+ggplot(met_avg) +
+  geom_histogram(mapping = aes(x = wind.sp))
+```
+
+**Description**: The **majority of wind speed values** fall between **0 and 5**, with the highest concentration near **2**—suggesting calm to moderate wind conditions are most common. The **long tail** extending toward higher values indicates **occasional strong winds**, but these are rare. The **right-skewed shape** implies that while low wind speeds dominate, the dataset includes some **extreme events** worth noting—possibly gusts or storm-related spikes.
