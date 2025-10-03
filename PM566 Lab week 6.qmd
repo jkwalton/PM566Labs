@@ -1,0 +1,118 @@
+---
+title: "PM566 Lab week 6"
+author: "Jordan Walton"
+format:
+  html:
+    embed-resources: true
+---
+
+**Read in Medical Transcriptions**
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(tidytext)
+mt_samples <- read_csv("https://raw.githubusercontent.com/USCbiostats/data-science-data/master/00_mtsamples/mtsamples.csv")
+mt_samples <- mt_samples |>
+  select(description, medical_specialty, transcription)
+
+head(mt_samples)
+```
+
+# **Question 1: What specialties do we have?**
+
+**Answer**: there is no overlap within this. In terms of relation, we do find some similarities, with one being surgery.
+
+```{r}
+mt_samples %>%
+  count(medical_specialty, sort = TRUE)
+```
+
+# **Question 2**
+
+**Answer**: this makes sense, as we use "the" , "and" , and "was" a lot of our sentences as "stop words". The first non-stop word we get is "patient".
+
+```{r}
+library(tidytext)
+mt_samples %>%
+  unnest_tokens(word, transcription) %>%
+  count(word, sort = TRUE) %>%
+  top_n(20,n) %>%
+  ggplot(aes(x = reorder(word,n), y = n)) + geom_col() + coord_flip() + labs (x = "Word", y = "Count", title = "Top 20 Most Frequent Words")
+```
+
+# **Question 3**
+
+**Answer**: Yes, removing stop words reveals the core medical vocabulary, highlighting terms like *patient*, *procedure*, *pain*, *incision*, and *anesthesia*. This gives a much clearer picture of the dataset’s clinical focus, especially around surgical and diagnostic documentation.
+
+```{r}
+mt_samples%>%
+  unnest_tokens(word, transcription) %>%
+  anti_join(stop_words, by = "word") %>%
+  filter(!grepl("^[0-9]+$", word)) %>%
+  count(word, sort = TRUE) %>%
+  top_n(20,n) %>%
+  ggplot(aes(x = reorder(word,n), y = n)) + geom_col() + coord_flip() + labs (x = "Word", y = "Count", title = "Top 20 Most Frequent Words")
+```
+
+# **Question 4**
+
+**Answer**: Trigrams reveal structured, domain-specific language that single words and bigrams can’t capture, thus, giving us clearer insight into clinical documentation patterns and note types.
+
+```{r}
+mt_samples %>%
+  unnest_tokens(bigram, transcription, token = "ngrams", n = 2) %>%
+  count(bigram, sort = TRUE) %>%
+  top_n(20,n)
+
+mt_samples %>%
+  unnest_tokens(trigram, transcription, token = "ngrams", n = 3) %>%
+  count(trigram, sort = TRUE) %>%
+  top_n(20,n)
+```
+
+# **Question 5**
+
+```{r}
+mt_samples %>%
+  unnest_tokens(bigram, transcription, token = "ngrams", n = 2) %>%
+  separate(bigram, c("word1", "word2"), sep = " ") %>%
+  filter(word1 == "patient" | word2 == "patient") %>%
+  count(word1, word2, sort = TRUE)
+```
+
+# **Question 6**
+
+```{r}
+mt_samples %>%
+  unnest_tokens(word, transcription) %>%
+  anti_join(stop_words, by = "word") %>%
+  filter(!grepl("^[0-9]+$", word)) %>%
+  group_by(medical_specialty) %>%
+  count(word, sort = TRUE) %>%
+  top_n(5, n) %>%
+  arrange(medical_specialty, desc(n))
+```
+
+# **Question 7** 
+
+**Answer**: Analyzing trigrams reveals common clinical phrases like *the patient was*, *history of present*, and *tolerated the procedure*, highlighting the structured and repetitive nature of medical documentation. These patterns offer insight into note types and clinical workflows, making trigrams useful for classification and NLP tasks.
+
+```{r}
+library(tidytext)
+
+# Create trigrams
+trigrams <- mt_samples %>%
+  unnest_ngrams(trigram, transcription, n = 3) %>%
+  count(trigram, sort = TRUE) %>%
+  slice_max(n, n = 20)
+
+# Visualize
+ggplot(trigrams, aes(x = reorder(trigram, n), y = n)) +
+  geom_col(fill = "blue") +
+  coord_flip() +
+  labs(title = "Top 20 Most Frequent Trigrams", x = "Trigram", y = "Count")
+
+```
