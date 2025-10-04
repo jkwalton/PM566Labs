@@ -1,0 +1,277 @@
+---
+title: "PM566 Homework 2"
+author: "Jordan Walton"
+format:
+  html:
+    embed-resources: true
+---
+
+```{r setup, include=FALSE}
+library(nycflights13)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+get_time_category <- function(time) {
+  hour <- floor(time / 100)
+  case_when(
+    hour >= 6 & hour < 8 ~ "early morning",
+    hour >= 8 & hour < 12 ~ "morning",
+    hour >= 12 & hour < 18 ~ "afternoon",
+    hour >= 18 & hour < 23 ~ "evening",
+    TRUE ~ NA_character_
+  )
+}
+```
+
+## Question 1
+
+**Answer**:
+
+**ORD**: 17283
+
+**ATL**: 17215
+
+**LAX**: 16174
+
+**BOS**: 15508
+
+**MCO**: 14082
+
+**CLT**: 14064
+
+**SFO**: 13331
+
+**FLL**: 12055
+
+**MIA**: 11728
+
+**DCA**: 9705
+
+```{r}
+
+flights %>%
+  count(dest, sort = TRUE) %>%
+  top_n(10)
+```
+
+## Question 2
+
+**Answer**: The percentage of the flights that were "red eye" were 3.15%.
+
+```{r}
+# Helper function
+get_time_category <- function(time) {
+  hour <- floor(time / 100)
+  case_when(
+    hour >= 0 & hour < 6 ~ "early morning",
+    hour >= 6 & hour < 12 ~ "morning",
+    hour >= 12 & hour < 18 ~ "afternoon",
+    hour >= 18 & hour <= 23 ~ "evening",
+    TRUE ~ NA_character_
+  )
+}
+
+# Create new variables
+flights <- flights %>%
+  mutate(
+    dep_period = get_time_category(dep_time),
+    arr_period = get_time_category(arr_time)
+  )
+
+# Barplots
+ggplot(flights %>% filter(!is.na(dep_period)), aes(x = dep_period)) +
+  geom_bar() +
+  ggtitle("Departure Time Categories")
+
+ggplot(flights %>% filter(!is.na(arr_period)), aes(x = arr_period)) +
+  geom_bar() +
+  ggtitle("Arrival Time Categories")
+
+# Red eye flights
+red_eye <- flights %>%
+  filter(dep_period %in% c("afternoon", "evening"),
+         arr_period %in% c("early morning", "morning"))
+
+red_eye_pct <- nrow(red_eye) / nrow(flights) * 100
+red_eye_pct
+
+```
+
+## Question 3
+
+**Answer**: Yes, there were planes that flew for multiple airlines. In total, 34 aircraft tail numbers appeared with more than one carrier in the dataset. These planes were shared across airlines such as DL (Delta), FL (AirTran), EV (ExpressJet), and 9E (Endeavor Air). For example, tail number N994AT flew for both FL and DL.
+
+```{r}
+flights %>%
+  filter(!is.na(tailnum)) %>%
+  distinct(tailnum, carrier) %>%
+  count(tailnum) %>%
+  filter(n > 1) %>%
+  left_join(flights %>% select(tailnum, carrier) %>% distinct(), by = "tailnum")
+
+```
+
+## Question 4
+
+**Answer**: The missing relationship is between weather\$origin and airports\$faa. Each weather observation is tied to a specific airport, so this connection should be represented in the diagram. Adding an arrow from weather to airports via the origin → faa link would complete the relational structure and clarify how weather data can be joined with airport metadata.
+
+## Question 5
+
+**Answer**: After creating a weather_id using year, month, day, hour, and origin, we found 3 duplicated entries. This indicates that for three specific airport-hour combinations, there were multiple weather observations recorded. These duplicates may result from overlapping measurements or data granularity within the same hour. While rare, they highlight the importance of verifying uniqueness before merging data sets.
+
+```{r}
+weather <- weather %>%
+  mutate(weather_id = paste(year, month, day, hour, origin, sep = "_"))
+
+# Check duplicates
+sum(duplicated(weather$weather_id))
+
+# Merge
+flights_weather <- flights %>%
+  left_join(weather, by = c("time_hour", "origin"))
+
+# column cleanup
+
+flights_weather <- flights_weather %>%
+  rename(
+    year = year.x,
+    month = month.x,
+    day = day.x,
+    hour = hour.x
+  ) %>%
+  select(-year.y, -month.y, -day.y, -hour.y)
+```
+
+## Question 6
+
+```{r}
+# Step 2: Missing values
+summary(flights_weather)
+
+# Step 3: Variable types
+glimpse(flights_weather)
+
+# Step 4: Range and distribution
+flights_weather %>%
+  select(dep_delay, arr_delay, temp, wind_speed, precip) %>%
+  summary()
+
+# Step 5: Relationships
+ggplot(flights_weather, aes(x = temp, y = dep_delay)) + geom_point(alpha = 0.3) + geom_smooth()
+
+```
+
+## Question 7
+
+**Answer**:
+
+1.  Worst overall day: March 8, 2013
+2.  Worst day at a specific airport: March 8, 2013 at LGA
+3.  Worst hour at a specific airport: On July 28th, 2013 at 9, LGA had the worst single hour for delays
+
+```{r}
+# Worst overall day
+worst_day <- flights_weather %>%
+  group_by(year, month, day) %>%
+   summarise(avg_dep_delay = mean(dep_delay, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(avg_dep_delay)) %>%
+  slice(1)
+
+# Worst day at a specific airport
+worst_day_origin <- flights_weather %>%
+  group_by(year, month, day, origin) %>%
+   summarise(avg_dep_delay = mean(dep_delay, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(avg_dep_delay)) %>%
+  slice(1)
+
+# Worst hour at a specific airport
+worst_hour_origin <- flights_weather %>%
+  group_by(year, month, day, hour, origin) %>%
+   summarise(avg_dep_delay = mean(dep_delay, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(avg_dep_delay)) %>%
+  slice(1)
+
+```
+
+## Question 8
+
+```{r}
+avg_delay_dest <- flights_weather %>%
+  group_by(dest) %>%
+  summarise(avg_dep_delay = mean(dep_delay, na.rm = TRUE))
+
+#adding information to the airpots data frame
+airport_delays <- airports %>%
+  left_join(avg_delay_dest, by = c("faa" = "dest"))
+
+# plotting a map
+
+ggplot(airport_delays, aes(x = lon, y = lat, color = avg_dep_delay)) +
+  geom_point(size = 3, alpha = 0.7) +
+  scale_color_viridis_c(option = "plasma", na.value = "grey50") +
+  theme_minimal() +
+  labs(title = "Average Departure Delay by Destination Airport",
+       x = "Longitude", y = "Latitude", color = "Avg Delay (min)")
+
+```
+
+## Question 9
+
+**Answer**: Based on the visualizations and summary statistics, precipitation has the strongest impact on departure delays, followed by wind speed. Temperature shows little to no consistent effect. Flights departing during heavy rain or high wind conditions are more likely to experience longer delays, highlighting the operational challenges posed by adverse weather.
+
+```{r}
+set.seed(42)  # For reproducibility
+
+flights_weather_clean <- flights_weather %>%
+  filter(!is.na(dep_delay), dep_delay < 300)  # Remove extreme delays
+
+sampled_data <- flights_weather_clean %>% sample_n(5000)
+```
+
+```{r}
+weather_summary <- flights_weather_clean %>%
+  mutate(
+    temp_bin = cut(temp, breaks = c(0, 32, 50, 70, 90, 110), include.lowest = TRUE),
+    wind_bin = cut(wind_speed, breaks = c(0, 5, 10, 15, 20, 30), include.lowest = TRUE),
+    precip_bin = cut(precip, breaks = c(0, 0.01, 0.1, 0.5, 1, 2), include.lowest = TRUE)
+  ) %>%
+  group_by(temp_bin, wind_bin, precip_bin) %>%
+  summarise(avg_dep_delay = mean(dep_delay, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(avg_dep_delay))
+
+weather_summary
+
+```
+
+```{r}
+#Temperature vs Departure Delay
+
+ggplot(sampled_data, aes(x = temp, y = dep_delay)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", color = "red") +
+  labs(title = "Temperature vs Departure Delay",
+       x = "Temperature (°F)", y = "Departure Delay (min)")
+
+```
+
+```{r}
+# Wind Speed vs Departure Delay
+ggplot(sampled_data, aes(x = wind_speed, y = dep_delay)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", color = "blue") +
+  labs(title = "Wind Speed vs Departure Delay",
+       x = "Wind Speed (mph)", y = "Departure Delay (min)")
+
+```
+
+```{r}
+# Precipitation vs Departure Delay
+
+ggplot(sampled_data, aes(x = precip, y = dep_delay)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm", color = "green") +
+  labs(title = "Precipitation vs Departure Delay",
+       x = "Precipitation (inches)", y = "Departure Delay (min)")
+
+```
