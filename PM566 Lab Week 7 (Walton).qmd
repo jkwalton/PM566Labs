@@ -1,0 +1,136 @@
+---
+title: "PM566 Lab week 7"
+author: "Jordan Walton"
+link-citations: true
+toc: false
+format:
+  html:
+    embed-resources: true
+---
+
+```{r}
+library(httr)
+library(xml2)
+library(stringr)
+library(rvest)
+```
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+
+```
+
+# **Question 1:** 
+
+**Answer:** 263523 articles found
+
+```{r}
+# Downloading the website
+website <- xml2::read_html("https://pubmed.ncbi.nlm.nih.gov/?term=sars-cov-2")
+
+# Finding the counts
+counts <- xml2::xml_find_first(website, "/html/body/main/div[9]/div[2]/div[2]/div[1]/div[1]/h3/span")
+
+# Turning it into text
+counts <- as.character(counts)
+
+# Extracting the data using regex (matches numbers with commas)
+totalcount <- stringr::str_extract(counts, "[0-9,.]+")
+
+# Removing commas so we can convert to numeric
+totalcount <- gsub(",", "", totalcount)
+
+totalcount <- as.numeric(totalcount)
+print(totalcount)
+```
+
+# **Question 2:** 
+
+```{r}
+# read in text, each line is a separate character
+abstracts <- readLines('~/Downloads/abstract-sars-cov-2-set.txt', warn = FALSE)
+# combine all text into one character
+abstracts <- paste(abstracts, collapse = '\n')
+# split the text whenever 3 new lines occur in a row (indicating two blank lines)
+abstracts <- unlist(strsplit(abstracts, split = '\n\n\n'))
+# replace any remaining "\n" symbols with spaces
+abstracts <- gsub("\n", " ", abstracts)
+# replace multiple spaces with single space
+abstracts <- gsub(" +", " ", abstracts)
+```
+
+# **Question 3:** 
+
+**Answer**: The top 10 institutions include University of California, Standford University, USC, UCSF, UCSD, The University, University of Washington, Columbia University, UCLA, and Johns Hopkins University. The results include duplicate and inconsistent institution names. To improve them, I would refine the regular expression to better capture full names, clean the text to standardize formatting, and group similar institutions (e.g., different campuses of the University of California). Filtering out vague or low-frequency entries would also make the list more accurate and meaningful.
+
+```{r}
+library(stringr)
+institution <- str_extract_all(
+  abstracts,
+  "\\b(?:University of [A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*|[A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)* University|[A-Z][a-zA-Z]+ Institute of [A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*)\\b"
+)
+institution <- unlist(institution)
+institution <- str_to_title(trimws(institution))
+top10 <- sort(table(institution), decreasing = TRUE)[1:10]
+print(top10)
+```
+
+# **Question 4:**
+
+```{r}
+# read in text, each line is a separate character
+abstracts <- readLines('~/Downloads/abstract-sars-cov-2-set.txt', warn = FALSE)
+# combine all text into one character
+abstracts <- paste(abstracts, collapse = '\n')
+# split the text whenever 3 new lines occur in a row (indicating two blank lines)
+abstracts <- unlist(strsplit(abstracts, split = '\n\n\n'))
+```
+
+```{r}
+journal <- str_extract(abstracts, "^\\d+\\.\\s.*")
+journal <- gsub("^\\d+\\.\\s", "", journal)
+```
+
+```{r}
+titles <- sapply(abstracts, function(x){
+  blocks <- unlist(strsplit(x, split = "\n\n"))
+  blocks <- blocks[blocks != ""]
+  blocks[2]
+}, USE.NAMES = FALSE)
+
+```
+
+```{r}
+authors <- sapply(abstracts, function(x){
+  blocks <- unlist(strsplit(x, split = "\n\n"))
+  blocks <- blocks[blocks != ""]
+  blocks[3]
+}, USE.NAMES = FALSE)
+
+```
+
+```{r}
+author_info <- str_extract(abstracts, "Author information:.*?(?=\\n\\n)")
+author_info <- gsub("Author information:\\s*", "", author_info)
+
+```
+
+```{r}
+affiliations <- str_extract_all(
+  author_info,
+  "\\b(?:University of [A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*|[A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)* University|[A-Z][a-zA-Z]+ Institute of [A-Z][a-zA-Z]+(?: [A-Z][a-zA-Z]+)*)\\b"
+)
+```
+
+```{r}
+papers <- data.frame(
+  Journal = journal,
+  Title = titles,
+  Authors = authors,
+  AuthorInfo = author_info,
+  stringsAsFactors = FALSE
+)
+
+knitr::kable(papers[1:5, ])
+
+```
